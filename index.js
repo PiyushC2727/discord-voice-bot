@@ -29,7 +29,7 @@ await sodium.ready;
 
 const BOT_TOKEN = process.env.DISCORD_BOT_TOKEN;
 const AI_API_KEY = process.env.AI_API_KEY;
-const DEFAULT_MODEL = process.env.AI_MODEL || "openai/gpt-oss-120b";
+let CURRENT_MODEL = process.env.AI_MODEL || "openai/gpt-oss-120b";
 let CURRENT_VOICE = "hi-IN-MadhurNeural"; // Type2Talk default
 
 if (!AI_API_KEY) {
@@ -82,7 +82,7 @@ audioPlayer.on("stateChange", (oldState, newState) => {
 client.once("ready", () => {
   console.log("--------------------------------------------------");
   console.log(`🤖 Voice Bot is ONLINE as: ${client.user.tag}`);
-  console.log(`🧠 AI Engine: Groq (${DEFAULT_MODEL})`);
+  console.log(`🧠 AI Model: ${CURRENT_MODEL}`);
   console.log(`🗣️ Type2Talk Voice: ${CURRENT_VOICE}`);
   console.log("--------------------------------------------------");
 });
@@ -181,6 +181,28 @@ client.on("messageCreate", async (message) => {
     return;
   }
 
+  // Command: !model or !models (Switch or view AI model)
+  if (clean.startsWith("!model") || clean.startsWith("model ") || clean === "models" || clean === "!models") {
+    const parts = clean.split(/\s+/);
+    if (parts.length < 2 || clean === "!model" || clean === "model" || clean === "!models" || clean === "models") {
+      await message.reply(
+        `🧠 **Current AI Model:** \`${CURRENT_MODEL}\`\n\n` +
+        `**Available Fast Models:**\n` +
+        `- \`openai/gpt-oss-120b\` (Default: Smartest reasoning)\n` +
+        `- \`openai/gpt-oss-20b\` (Ultra-fast low latency)\n` +
+        `- \`qwen/qwen3.8-27b\` (Qwen multilingual)\n` +
+        `- \`gpt-4o-mini\` / \`gpt-4o\` (Official OpenAI)\n\n` +
+        `**To Switch Model:**\n` +
+        `\`!model openai/gpt-oss-20b\``
+      );
+      return;
+    }
+    const requestedModel = parts[1].trim();
+    CURRENT_MODEL = requestedModel;
+    await message.reply(`✅ AI Model switched to: \`${CURRENT_MODEL}\`!`);
+    return;
+  }
+
   // Command: !say <text> (Speaks exact text)
   if (clean.startsWith("!say") || clean.startsWith("say ")) {
     const textToSay = clean.replace(/^(!say|say)\s*/i, "").trim();
@@ -219,11 +241,11 @@ client.on("messageCreate", async (message) => {
       return;
     }
 
-    console.log(`🧠 Asking Groq AI: "${prompt}"`);
+    console.log(`🧠 Asking AI (${CURRENT_MODEL}): "${prompt}"`);
     await message.channel.sendTyping();
 
     try {
-      // 1. Call Groq AI
+      // 1. Call AI
       const aiReply = await callGroqAi(prompt);
 
       // 2. Reply in text
@@ -241,17 +263,23 @@ client.on("messageCreate", async (message) => {
 });
 
 /**
- * Calls Groq AI
+ * Calls Groq AI or official OpenAI
  */
 async function callGroqAi(prompt) {
-  const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+  // If OpenAI key is supplied (starts with sk- and not gsk_), use OpenAI API endpoint
+  const isOfficialOpenAI = AI_API_KEY && AI_API_KEY.startsWith("sk-") && !AI_API_KEY.startsWith("gsk_");
+  const endpoint = isOfficialOpenAI 
+    ? "https://api.openai.com/v1/chat/completions" 
+    : "https://api.groq.com/openai/v1/chat/completions";
+
+  const res = await fetch(endpoint, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       "Authorization": `Bearer ${AI_API_KEY}`
     },
     body: JSON.stringify({
-      model: DEFAULT_MODEL,
+      model: CURRENT_MODEL,
       messages: [
         { role: "system", content: SYSTEM_PROMPT },
         { role: "user", content: prompt }
@@ -261,7 +289,7 @@ async function callGroqAi(prompt) {
   });
 
   if (!res.ok) {
-    throw new Error(`Groq API error: ${await res.text()}`);
+    throw new Error(`AI API error (${res.status}): ${await res.text()}`);
   }
 
   const data = await res.json();
