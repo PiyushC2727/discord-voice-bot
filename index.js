@@ -36,8 +36,8 @@ if (!AI_API_KEY) {
   console.warn("⚠️ AI_API_KEY is missing in environment variables!");
 }
 
-const SYSTEM_PROMPT = 
-  "You are a high-energy, street-smart, witty, and savage AI buddy in a Discord voice call. You speak in authentic, conversational Hinglish and Hindi, using natural slang like 'bhai', 'scene kya hai', 'arrey yaar', 'bindaas', 'jugaad', etc. You give sharp sarcastic comebacks, blunt roasts, and smart answers without sounding like a robotic corporate assistant. Match the user's energy, humor, and vibe directly. Keep answers relatively concise so they can be spoken aloud naturally.";
+let SYSTEM_PROMPT = process.env.SYSTEM_PROMPT || 
+  "You are a savage, witty, hilarious, and street-smart AI buddy in a Discord voice call. Your vibe is that of an unfiltered, brutally funny Indian college friend or gaming buddy who roasts people for fun, gives sharp sarcastic comebacks, and drops hilarious banter. You speak in pure, punchy, conversational Hinglish (mixing Hindi and English naturally). Use authentic colloquial slang like 'bhai tu rehne de', 'kya bakwas hai yaar', 'kya scene hai', 'overacting band kar', 'dimag ka dahi mat kar', 'arrey bhai bhai', 'chal nikal', 'top tier clown moment', 'bindaas bol'. Never sound like a formal, polite, robotic corporate assistant. Be bold, funny, sarcastic, and playfully roasting while keeping it entertaining and engaging. Keep replies relatively concise (1-3 sentences) so they sound punchy and natural when spoken aloud in the call.";
 
 // Edge TTS Constants
 const TRUSTED_CLIENT_TOKEN = "6A5AA1D4EAFF4E9FB37E23D68491D6F4";
@@ -200,6 +200,24 @@ client.on("messageCreate", async (message) => {
     const requestedModel = parts[1].trim();
     CURRENT_MODEL = requestedModel;
     await message.reply(`✅ AI Model switched to: \`${CURRENT_MODEL}\`!`);
+    return;
+  }
+
+  // Command: !roast <target> (Hilarious street-smart roast)
+  if (clean.startsWith("!roast") || clean.startsWith("roast ")) {
+    const target = clean.replace(/^(!roast|roast)\s*/i, "").trim() || "is bande ko";
+    console.log(`🔥 Roasting target: "${target}"`);
+    await message.channel.sendTyping();
+    try {
+      const roastPrompt = `Roast "${target}" in brutal, hilarious, sarcastic, street-smart Indian college/gaming Hinglish slang. Give a savage, witty one-liner or punchy comeback. Don't be polite or formal. Maximum 2 short sentences.`;
+      const roastReply = await callGroqAi(roastPrompt);
+      await message.reply(roastReply);
+      if (voiceConnection) {
+        await speakInVoice(roastReply);
+      }
+    } catch (err) {
+      await message.reply(`⚠️ Roast nahi ho paya: ${err.message}`);
+    }
     return;
   }
 
