@@ -36,8 +36,15 @@ if (!AI_API_KEY) {
   console.warn("⚠️ AI_API_KEY is missing in environment variables!");
 }
 
-let SYSTEM_PROMPT = process.env.SYSTEM_PROMPT || 
-  "You are a savage, witty, hilarious, and street-smart AI buddy in a Discord voice call. Your vibe is that of an unfiltered, brutally funny Indian college friend or gaming buddy who roasts people for fun, gives sharp sarcastic comebacks, and drops hilarious banter. You speak in pure, punchy, conversational Hinglish (mixing Hindi and English naturally). Use authentic colloquial slang like 'bhai tu rehne de', 'kya bakwas hai yaar', 'kya scene hai', 'overacting band kar', 'dimag ka dahi mat kar', 'arrey bhai bhai', 'chal nikal', 'top tier clown moment', 'bindaas bol'. Never sound like a formal, polite, robotic corporate assistant. Be bold, funny, sarcastic, and playfully roasting while keeping it entertaining and engaging. Keep replies relatively concise (1-3 sentences) so they sound punchy and natural when spoken aloud in the call.";
+const PERSONA_PRESETS = {
+  savage: "You are a savage, witty, hilarious, and street-smart AI buddy in a Discord voice call. Your vibe is that of an unfiltered, brutally funny Indian college friend or gaming buddy who roasts people for fun, gives sharp sarcastic comebacks, and drops hilarious banter. You speak in pure, punchy, conversational Hinglish (mixing Hindi and English naturally). Use authentic colloquial slang like 'bhai tu rehne de', 'kya bakwas hai yaar', 'kya scene hai', 'overacting band kar', 'dimag ka dahi mat kar', 'arrey bhai bhai', 'chal nikal', 'top tier clown moment', 'bindaas bol'. Never sound like a formal, polite, robotic corporate assistant. Be bold, funny, sarcastic, and playfully roasting while keeping it entertaining and engaging. Keep replies relatively concise (1-3 sentences) so they sound punchy and natural when spoken aloud in the call.",
+  chill: "You are a relaxed, chill, friendly gaming bro in a Discord voice call. You have high positive energy, great vibes, and speak in casual, conversational Hinglish with words like 'bhai', 'scene mast hai', 'chill karo', 'full maze'. You are supportive, funny, relaxed, and never stressed. Keep replies punchy and natural (1-3 sentences).",
+  smart: "You are a brilliant, articulate, sharp tech mentor and assistant in a Discord call. You explain complex questions simply, give clever insights, and use witty, intelligent examples in fluent Hinglish. Keep answers concise, direct, and insightful (2-3 sentences).",
+  gangster: "You are a hilarious, dramatic Mumbai tapori / gangster personality in a Discord voice call. You speak in classic Bollywood tapori slang like 'apun', 'bole toh', 'khopdi me ghusela', 'mamu', 'tension nahi lene ka re bawa', 'chindi giri mat kar'. You are loud, funny, and dramatic. Keep replies short and punchy (1-2 sentences)."
+};
+
+let CURRENT_PERSONA = "savage";
+let SYSTEM_PROMPT = process.env.SYSTEM_PROMPT || PERSONA_PRESETS.savage;
 
 // Edge TTS Constants
 const TRUSTED_CLIENT_TOKEN = "6A5AA1D4EAFF4E9FB37E23D68491D6F4";
@@ -200,6 +207,54 @@ client.on("messageCreate", async (message) => {
     const requestedModel = parts[1].trim();
     CURRENT_MODEL = requestedModel;
     await message.reply(`✅ AI Model switched to: \`${CURRENT_MODEL}\`!`);
+    return;
+  }
+
+  // Command: !persona [name] (Switch or view behavior presets)
+  if (clean.startsWith("!persona") || clean.startsWith("persona ") || clean === "persona" || clean === "!personas") {
+    const parts = clean.split(/\s+/);
+    if (parts.length < 2 || clean === "!persona" || clean === "persona" || clean === "!personas") {
+      await message.reply(
+        `🎭 **Current Active Persona:** \`${CURRENT_PERSONA}\`\n\n` +
+        `**Available Behavior Presets:**\n` +
+        `- \`!persona savage\` -> Brutal, sarcastic roaster & funny college dost *(Default)*\n` +
+        `- \`!persona chill\` -> Friendly, positive gaming bro with chill vibes\n` +
+        `- \`!persona smart\` -> Sharp, witty tech genius mentor\n` +
+        `- \`!persona gangster\` -> Mumbai tapori Bollywood style ("apun bole toh")\n\n` +
+        `**Custom Behavior:**\n` +
+        `Type \`!setprompt <apna custom prompt>\` to set whatever behavior you want!\n` +
+        `Type \`!getprompt\` to view the active prompt.`
+      );
+      return;
+    }
+    const requested = parts[1].toLowerCase().trim();
+    if (PERSONA_PRESETS[requested]) {
+      CURRENT_PERSONA = requested;
+      SYSTEM_PROMPT = PERSONA_PRESETS[requested];
+      await message.reply(`✅ Persona switched to **${requested.toUpperCase()}**! Ab naye style me suno.`);
+      await speakInVoice(`Haan bhai, ab mera style ${requested} ho gaya hai!`);
+    } else {
+      await message.reply(`⚠️ Unknown persona! Available: \`savage\`, \`chill\`, \`smart\`, \`gangster\``);
+    }
+    return;
+  }
+
+  // Command: !setprompt <custom instructions>
+  if (clean.startsWith("!setprompt") || clean.startsWith("setprompt ")) {
+    const customPrompt = clean.replace(/^(!setprompt|setprompt)\s*/i, "").trim();
+    if (!customPrompt) {
+      await message.reply("⚠️ Usage: `!setprompt You are a poetic philosopher who speaks in rhymes.`");
+      return;
+    }
+    CURRENT_PERSONA = "custom";
+    SYSTEM_PROMPT = customPrompt;
+    await message.reply(`✅ Custom behavior prompt set successfully! Ab bot aapke naye rules follow karega.`);
+    return;
+  }
+
+  // Command: !getprompt
+  if (clean === "!getprompt" || clean === "getprompt") {
+    await message.reply(`📜 **Current System Prompt (${CURRENT_PERSONA}):**\n\`\`\`\n${SYSTEM_PROMPT.substring(0, 1500)}\n\`\`\``);
     return;
   }
 
