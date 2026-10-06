@@ -30,7 +30,40 @@ await sodium.ready;
 const BOT_TOKEN = process.env.DISCORD_BOT_TOKEN;
 const AI_API_KEY = process.env.AI_API_KEY;
 let CURRENT_MODEL = process.env.AI_MODEL || "openai/gpt-oss-120b";
-let CURRENT_VOICE = "hi-IN-MadhurNeural"; // Type2Talk default
+const VOICE_LIST = [
+  { id: "hi-IN-MadhurNeural", name: "Madhur", desc: "Hindi Male (Default)", lang: "hi-IN", key: "1" },
+  { id: "hi-IN-SwaraNeural", name: "Swara", desc: "Hindi Female", lang: "hi-IN", key: "2" },
+  { id: "en-IN-NeerjaNeural", name: "Neerja", desc: "Indian English Female", lang: "en-IN", key: "3" },
+  { id: "en-IN-PrabhatNeural", name: "Prabhat", desc: "Indian English Male", lang: "en-IN", key: "4" },
+  { id: "ur-PK-AsadNeural", name: "Asad", desc: "Urdu/Hinglish Male", lang: "ur-PK", key: "5" },
+  { id: "ur-PK-UzmaNeural", name: "Uzma", desc: "Urdu/Hinglish Female", lang: "ur-PK", key: "6" },
+  { id: "en-US-GuyNeural", name: "Guy", desc: "US Male (Chill/Casual)", lang: "en-US", key: "7" },
+  { id: "en-US-JennyNeural", name: "Jenny", desc: "US Female (Friendly)", lang: "en-US", key: "8" },
+  { id: "en-US-ChristopherNeural", name: "Christopher", desc: "US Male (Deep/Podcast)", lang: "en-US", key: "9" },
+  { id: "en-US-AriaNeural", name: "Aria", desc: "US Female (Expressive)", lang: "en-US", key: "10" },
+  { id: "en-GB-RyanNeural", name: "Ryan", desc: "British Male", lang: "en-GB", key: "11" },
+  { id: "en-GB-SoniaNeural", name: "Sonia", desc: "British Female", lang: "en-GB", key: "12" }
+];
+
+function resolveVoice(input) {
+  if (!input) return null;
+  const q = input.trim().toLowerCase();
+  const byNum = VOICE_LIST.find(v => v.key === q);
+  if (byNum) return byNum;
+  const byName = VOICE_LIST.find(v => v.name.toLowerCase() === q);
+  if (byName) return byName;
+  const byId = VOICE_LIST.find(v => v.id.toLowerCase() === q || v.id.toLowerCase().includes(q));
+  if (byId) return byId;
+  if (q === "female" || q === "girl" || q === "aurat" || q === "ladki") {
+    return VOICE_LIST.find(v => v.id === "hi-IN-SwaraNeural");
+  }
+  if (q === "male" || q === "boy" || q === "aadmi" || q === "ladka") {
+    return VOICE_LIST.find(v => v.id === "hi-IN-MadhurNeural");
+  }
+  return null;
+}
+
+let CURRENT_VOICE = process.env.DEFAULT_VOICE || "hi-IN-MadhurNeural"; // Type2Talk default
 
 if (!AI_API_KEY) {
   console.warn("⚠️ AI_API_KEY is missing in environment variables!");
@@ -175,16 +208,47 @@ client.on("messageCreate", async (message) => {
     return;
   }
 
-  // Command: !voice <name>
-  if (clean.startsWith("!voice") || clean.startsWith("voice ")) {
-    const parts = clean.split(" ");
-    if (parts.length < 2) {
-      await message.reply("🎙️ **Available Voices:**\n- `hi-IN-MadhurNeural` (Madhur - Hindi Male)\n- `hi-IN-SwaraNeural` (Swara - Hindi Female)\n- `en-IN-PrabhatNeural` (Prabhat - Indian English Male)\n- `en-US-ChristopherNeural` (Christopher - US English Male)\n\nUsage: `!voice hi-IN-SwaraNeural`");
+  // Command: !voice or !voices
+  if (clean.startsWith("!voice") || clean.startsWith("voice ") || clean === "!voices" || clean === "voices") {
+    const parts = clean.split(/\s+/);
+    if (parts.length < 2 || clean === "!voice" || clean === "voice" || clean === "!voices" || clean === "voices") {
+      const activeVoiceObj = VOICE_LIST.find(v => v.id === CURRENT_VOICE);
+      const activeName = activeVoiceObj ? `${activeVoiceObj.name} (${activeVoiceObj.desc})` : CURRENT_VOICE;
+
+      let menu = `🎙️ **Current Active Voice:** \`${activeName}\`\n\n`;
+      menu += `👉 **Change karne ke liye sirf number ya naam likho:**\n*(Example: \`!voice 2\` ya \`!voice swara\`)*\n\n`;
+      menu += `🇮🇳 **Hindi / Desi Voices:**\n`;
+      menu += `**1** - \`!voice 1\` ya \`!voice madhur\` → Madhur (Hindi Male - Default)\n`;
+      menu += `**2** - \`!voice 2\` ya \`!voice swara\` → Swara (Hindi Female)\n`;
+      menu += `**3** - \`!voice 3\` ya \`!voice neerja\` → Neerja (Indian English Female)\n`;
+      menu += `**4** - \`!voice 4\` ya \`!voice prabhat\` → Prabhat (Indian English Male)\n`;
+      menu += `**5** - \`!voice 5\` ya \`!voice asad\` → Asad (Urdu/Hinglish Male)\n`;
+      menu += `**6** - \`!voice 6\` ya \`!voice uzma\` → Uzma (Urdu/Hinglish Female)\n\n`;
+      menu += `🇺🇸 **US English Voices:**\n`;
+      menu += `**7** - \`!voice 7\` ya \`!voice guy\` → Guy (Chill / Casual Male)\n`;
+      menu += `**8** - \`!voice 8\` ya \`!voice jenny\` → Jenny (Friendly Female)\n`;
+      menu += `**9** - \`!voice 9\` ya \`!voice christopher\` → Christopher (Deep Voice Male)\n`;
+      menu += `**10** - \`!voice 10\` ya \`!voice aria\` → Aria (Expressive Female)\n\n`;
+      menu += `🇬🇧 **British English Voices:**\n`;
+      menu += `**11** - \`!voice 11\` ya \`!voice ryan\` → Ryan (British Male)\n`;
+      menu += `**12** - \`!voice 12\` ya \`!voice sonia\` → Sonia (British Female)`;
+
+      await message.reply(menu);
       return;
     }
-    CURRENT_VOICE = parts[1].trim();
-    await message.reply(`✅ Voice switched to: \`${CURRENT_VOICE}\`!`);
-    await speakInVoice("Haan bhai, meri nayi aawaz kaisi lag rahi hai?");
+
+    const query = parts.slice(1).join(" ");
+    const matched = resolveVoice(query);
+
+    if (matched) {
+      CURRENT_VOICE = matched.id;
+      await message.reply(`✅ Voice switched to: **${matched.name}** - ${matched.desc} (\`${matched.id}\`)!`);
+      if (voiceConnection) {
+        await speakInVoice(`Haan bhai, meri nayi aawaz suno, kaisi lag rahi hai?`);
+      }
+    } else {
+      await message.reply(`⚠️ Voice samajh nahi aayi bhai! Available voices dekhne ke liye sirf \`!voice\` likho, ya number use karo jaise \`!voice 2\`.`);
+    }
     return;
   }
 
@@ -464,8 +528,9 @@ async function generateEdgeTts(text, voice) {
     "Path:speech.config\r\n\r\n" +
     '{"context":{"synthesis":{"audio":{"metadataoptions":{"sentenceBoundaryEnabled":"false","wordBoundaryEnabled":"true"},"outputFormat":"audio-24khz-48kbitrate-mono-mp3"}}}}\r\n';
 
+  const lang = voice.includes("-") ? voice.split("-").slice(0, 2).join("-") : "en-US";
   const ssml = 
-    "<speak version='1.0' xmlns='http://www.w3.org/2001/10/synthesis' xml:lang='en-US'>" +
+    `<speak version='1.0' xmlns='http://www.w3.org/2001/10/synthesis' xml:lang='${lang}'>` +
     `<voice name='${voice}'><prosody pitch='+0Hz' rate='+0%' volume='+0%'>${escapeXml(removeInvalidXmlCharacters(text))}</prosody></voice></speak>`;
 
   const ssmlMsg = 
