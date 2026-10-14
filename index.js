@@ -20,6 +20,7 @@ import http from "http";
 import dotenv from "dotenv";
 import ffmpegPath from "ffmpeg-static";
 import sodium from "libsodium-wrappers";
+import { MsEdgeTTS, OUTPUT_FORMAT } from "msedge-tts";
 
 process.env.FFMPEG_PATH = ffmpegPath;
 dotenv.config();
@@ -79,11 +80,9 @@ const PERSONA_PRESETS = {
 let CURRENT_PERSONA = "savage";
 let SYSTEM_PROMPT = process.env.SYSTEM_PROMPT || PERSONA_PRESETS.savage;
 
-// Edge TTS Constants
-const TRUSTED_CLIENT_TOKEN = "6A5AA1D4EAFF4E9FB37E23D68491D6F4";
-const CHROMIUM_FULL_VERSION = "143.0.3650.75";
-const CHROMIUM_MAJOR_VERSION = CHROMIUM_FULL_VERSION.split(".")[0];
-const SEC_MS_GEC_VERSION = `1-${CHROMIUM_FULL_VERSION}`;
+// Edge TTS Engine
+const tts = new MsEdgeTTS();
+let ttsVoiceConfigured = "";
 
 if (!BOT_TOKEN) {
   console.error("❌ DISCORD_BOT_TOKEN is missing in .env!");
@@ -467,152 +466,48 @@ async function speakInVoice(text) {
   if (snippet.length > 350) snippet = snippet.substring(0, 350);
 
   try {
-    const audioBytes = await generateEdgeTts(snippet, CURRENT_VOICE);
-    console.log(`🎵 Edge TTS generated ${audioBytes.length} bytes. Playing audio in voice call...`);
-    const stream = Readable.from(Buffer.from(audioBytes));
+    const audioBuffer = await generateAudioBuffer(snippet, CURRENT_VOICE);
+    if (!audioBuffer || audioBuffer.length === 0) {
+      console.warn("⚠️ Edge TTS generated 0 bytes of audio.");
+      return;
+    }
+    console.log(`🎵 Edge TTS generated ${audioBuffer.length} bytes. Playing audio in voice call...`);
+    const stream = Readable.from(audioBuffer);
     const resource = createAudioResource(stream, { inputType: StreamType.Arbitrary });
     resource.playStream.on("error", (err) => console.error("❌ Audio resource stream error:", err.message));
     audioPlayer.play(resource);
   } catch (err) {
-    console.error("Voice playback error:", err);
+    console.error("❌ Voice playback error:", err);
   }
 }
 
 /**
- * Microsoft Edge TTS Generator
+ * Microsoft Edge Neural TTS Audio Buffer Generator (using msedge-tts v2.1.0)
  */
-function escapeXml(text) {
-  return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&apos;");
-}
-
-function removeInvalidXmlCharacters(text) {
-  return text.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F]/g, " ");
-}
-
-function ttsTimestamp() {
-  return new Date().toISOString().replace(/[-:.]/g, "").slice(0, -1);
-}
-
-async function makeSecMsGec() {
-  const winEpoch = 11644473600;
-  const secondsToNs = 1e9;
-  let ticks = Date.now() / 1000;
-  ticks += winEpoch;
-  ticks -= ticks % 300;
-  ticks *= secondsToNs / 100;
-  const payload = `${ticks.toFixed(0)}${TRUSTED_CLIENT_TOKEN}`;
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(payload));
-  return Array.from(new Uint8Array(digest)).map(b => b.toString(16).padStart(2, "0")).join("").toUpperCase();
-}
-
-function parseBinaryAudioFrame(data) {
-  const headerLength = (data[0] << 8) | data[1];
-  const headerText = new TextDecoder().decode(data.slice(2, 2 + headerLength));
-  const headers = {};
-  for (const line of headerText.split("\r\n")) {
-    const colonIndex = line.indexOf(":");
-    if (colonIndex > 0) headers[line.slice(0, colonIndex)] = line.slice(colonIndex + 1).trim();
+async function generateAudioBuffer(text, voice) {
+  try {
+    if (ttsVoiceConfigured !== voice) {
+      await tts.setMetadata(voice, OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3);
+      ttsVoiceConfigured = voice;
+    }
+    const { audioStream } = tts.toStream(text);
+    const chunks = [];
+    for await (const chunk of audioStream) {
+      chunks.push(chunk);
+    }
+    return Buffer.concat(chunks);
+  } catch (err) {
+    console.warn("⚠️ TTS stream error, retrying metadata and stream once...", err.message);
+    ttsVoiceConfigured = "";
+    await tts.setMetadata(voice, OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3);
+    ttsVoiceConfigured = voice;
+    const { audioStream } = tts.toStream(text);
+    const chunks = [];
+    for await (const chunk of audioStream) {
+      chunks.push(chunk);
+    }
+    return Buffer.concat(chunks);
   }
-  return { headers, body: data.slice(2 + headerLength) };
-}
-
-async function generateEdgeTts(text, voice) {
-  const connectionId = crypto.randomUUID().replace(/-/g, "");
-  const secMsGec = await makeSecMsGec();
-  const wssUrl = `wss://speech.platform.bing.com/consumer/speech/synthesize/readaloud/edge/v1?TrustedClientToken=${TRUSTED_CLIENT_TOKEN}&Sec-MS-GEC=${secMsGec}&Sec-MS-GEC-Version=${SEC_MS_GEC_VERSION}&ConnectionId=${connectionId}`;
-
-  const requestId = crypto.randomUUID().replace(/-/g, "");
-  const speechConfigMsg = 
-    `X-Timestamp:${ttsTimestamp()}\r\n` +
-    "Content-Type:application/json; charset=utf-8\r\n" +
-    "Path:speech.config\r\n\r\n" +
-    '{"context":{"synthesis":{"audio":{"metadataoptions":{"sentenceBoundaryEnabled":"false","wordBoundaryEnabled":"true"},"outputFormat":"audio-24khz-48kbitrate-mono-mp3"}}}}\r\n';
-
-  const lang = voice.includes("-") ? voice.split("-").slice(0, 2).join("-") : "en-US";
-  const ssml = 
-    `<speak version='1.0' xmlns='http://www.w3.org/2001/10/synthesis' xml:lang='${lang}'>` +
-    `<voice name='${voice}'><prosody pitch='+0Hz' rate='+0%' volume='+0%'>${escapeXml(removeInvalidXmlCharacters(text))}</prosody></voice></speak>`;
-
-  const ssmlMsg = 
-    `X-RequestId:${requestId}\r\n` +
-    "Content-Type:application/ssml+xml\r\n" +
-    `X-Timestamp:${ttsTimestamp()}Z\r\n` +
-    "Path:ssml\r\n\r\n" +
-    ssml;
-
-  return new Promise((resolve, reject) => {
-    const ws = new WebSocket(wssUrl, {
-      headers: {
-        "User-Agent": `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${CHROMIUM_MAJOR_VERSION}.0.0.0 Safari/537.36 Edg/${CHROMIUM_MAJOR_VERSION}.0.0.0`,
-        "Pragma": "no-cache",
-        "Cache-Control": "no-cache",
-        "Origin": "chrome-extension://jdiccldimpdaibmpdkjnbmckianbfold"
-      }
-    });
-
-    const audioChunks = [];
-
-    ws.onopen = () => {
-      ws.send(speechConfigMsg);
-      ws.send(ssmlMsg);
-    };
-
-    ws.onmessage = async (event) => {
-      let data = event.data;
-      if (typeof data === "string") {
-        if (data.includes("Path:turn.end")) {
-          try { ws.close(); } catch(e){}
-          const totalLength = audioChunks.reduce((acc, c) => acc + c.length, 0);
-          const merged = new Uint8Array(totalLength);
-          let offset = 0;
-          for (const c of audioChunks) {
-            merged.set(c, offset);
-            offset += c.length;
-          }
-          resolve(merged);
-        }
-      } else {
-        if (data instanceof Blob) data = new Uint8Array(await data.arrayBuffer());
-        else if (data instanceof ArrayBuffer) data = new Uint8Array(data);
-        if (data.length >= 2) {
-          const { headers, body } = parseBinaryAudioFrame(data);
-          if (headers.Path === "audio" && body.length > 0) audioChunks.push(body);
-        }
-      }
-    };
-
-    ws.onerror = (err) => reject(new Error("Edge TTS WS Error: " + err.message));
-    ws.onclose = () => {
-      if (audioChunks.length > 0) {
-        const totalLength = audioChunks.reduce((acc, c) => acc + c.length, 0);
-        const merged = new Uint8Array(totalLength);
-        let offset = 0;
-        for (const c of audioChunks) {
-          merged.set(c, offset);
-          offset += c.length;
-        }
-        resolve(merged);
-      } else {
-        reject(new Error("WebSocket closed without returning audio"));
-      }
-    };
-
-    setTimeout(() => {
-      try { ws.close(); } catch(e){}
-      if (audioChunks.length > 0) {
-        const totalLength = audioChunks.reduce((acc, c) => acc + c.length, 0);
-        const merged = new Uint8Array(totalLength);
-        let offset = 0;
-        for (const c of audioChunks) {
-          merged.set(c, offset);
-          offset += c.length;
-        }
-        resolve(merged);
-      } else {
-        reject(new Error("Edge TTS timeout"));
-      }
-    }, 15000);
-  });
 }
 
 client.login(BOT_TOKEN);
